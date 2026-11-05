@@ -2,6 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+- `blender_helper_run` accepts `arguments` delivered as a JSON object string, which some providers send for untyped object parameters; malformed strings fail with a clear message.
+
 ## 0.2.4 - 2026-10-24
 
 - Fix Unicode workspace/input/output paths in all OpenCV-based helpers by reading and writing image bytes through NumPy instead of OpenCV's filename APIs (#12).
