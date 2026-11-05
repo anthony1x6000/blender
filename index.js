@@ -279,7 +279,15 @@ async function resolveHelperPath(rawPath, spec, exec, config, allowOverwrite) {
 }
 
 async function buildHelperInvocation(helper, rawArguments, exec, config, allowOverwrite) {
-  const argumentsObject = rawArguments ?? {}
+  // Providers may deliver an untyped `json` parameter as a JSON string.
+  let argumentsObject = rawArguments ?? {}
+  if (typeof argumentsObject === 'string') {
+    try {
+      argumentsObject = JSON.parse(argumentsObject)
+    } catch (error) {
+      throw new Error(`arguments must be a JSON object or a JSON object string: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   if (argumentsObject === null || typeof argumentsObject !== 'object' || Array.isArray(argumentsObject)) {
     throw new Error('arguments must be an object')
   }

@@ -109,3 +109,18 @@ test('lossless JSON normalization removes negative zero recursively', () => {
   assert.equal(Object.is(normalized.nested[0], -0), false)
   assert.equal(Object.is(normalized.nested[1].value, -0), false)
 })
+
+test('helper invocation accepts arguments delivered as a JSON object string', async () => {
+  const helper = { arguments: [{ name: 'count', type: 'integer', flag: '--count' }] }
+  const exec = { agent: { session: { header: { cwd: tmpdir() } } } }
+  const parsed = await internals.buildHelperInvocation(helper, '{"count": 3}', exec, config, false)
+  assert.deepEqual(parsed.commandArguments, ['--count', '3'])
+  await assert.rejects(
+    internals.buildHelperInvocation(helper, '{not json', exec, config, false),
+    /JSON object string/u,
+  )
+  await assert.rejects(
+    internals.buildHelperInvocation(helper, '[1]', exec, config, false),
+    /must be an object/u,
+  )
+})
