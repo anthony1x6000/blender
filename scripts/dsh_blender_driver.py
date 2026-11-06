@@ -320,8 +320,16 @@ def _preview(payload: dict[str, Any]) -> dict[str, Any]:
 
     if scene.world is None:
         scene.world = bpy.data.worlds.new("DSH_PREVIEW_WORLD")
-    scene.world.use_nodes = True
-    background = scene.world.node_tree.nodes.get("Background")
+    # Blender 5.x+ deprecates toggling World.use_nodes and warns on write;
+    # modern worlds are node-based. Only set it as a legacy fallback when
+    # no node tree exists, to avoid "expected to be removed in Blender 6.0".
+    if getattr(scene.world, "node_tree", None) is None:
+        try:
+            scene.world.use_nodes = True
+        except Exception:
+            pass
+    node_tree = getattr(scene.world, "node_tree", None)
+    background = node_tree.nodes.get("Background") if node_tree else None
     if background is not None:
         background.inputs["Color"].default_value = (0.025, 0.025, 0.035, 1.0)
         background.inputs["Strength"].default_value = 0.35

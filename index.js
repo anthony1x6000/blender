@@ -216,6 +216,14 @@ function analysisPythonExecutable(config) {
   return existsSync(bundled) ? bundled : (process.platform === 'win32' ? 'python' : 'python3')
 }
 
+function analysisSetupHint(executable) {
+  return [
+    `Analysis helpers need Python with opencv-python-headless, numpy, Pillow, and scipy.`,
+    `Run \`node scripts/setup-analysis.js\` in the dsh-blender package, or install \`requirements-analysis.txt\` into the Python used by the plugin.`,
+    `Set DSH_BLENDER_ANALYSIS_PYTHON or the plugin's analysisPythonExecutable if a different interpreter should be used (probed: ${executable}).`,
+  ].join(' ')
+}
+
 async function probeAnalysisRuntime(config, signal) {
   const executable = analysisPythonExecutable(config)
   try {
@@ -228,7 +236,14 @@ async function probeAnalysisRuntime(config, signal) {
       maxOutputChars: config.maxOutputChars,
     })
     if (result.code !== 0) {
-      return { available: false, executable, version: '', dependencies: {}, error: clip(result.stderr || result.stdout, config.maxOutputChars) }
+      return {
+        available: false,
+        executable,
+        version: '',
+        dependencies: {},
+        error: clip(result.stderr || result.stdout, config.maxOutputChars),
+        hint: analysisSetupHint(executable),
+      }
     }
     const dependencies = JSON.parse(result.stdout.trim())
     const versionResult = await runProcess(executable, ['--version'], {
@@ -236,10 +251,24 @@ async function probeAnalysisRuntime(config, signal) {
       timeoutMs: Math.min(config.helperTimeoutMs, 15000),
       maxOutputChars: config.maxOutputChars,
     })
-    return { available: true, executable, version: (versionResult.stdout || versionResult.stderr).trim(), dependencies, error: '' }
+    return {
+      available: true,
+      executable,
+      version: (versionResult.stdout || versionResult.stderr).trim(),
+      dependencies,
+      error: '',
+      hint: '',
+    }
   } catch (error) {
     if (signal?.aborted) throw error
-    return { available: false, executable, version: '', dependencies: {}, error: error instanceof Error ? error.message : String(error) }
+    return {
+      available: false,
+      executable,
+      version: '',
+      dependencies: {},
+      error: error instanceof Error ? error.message : String(error),
+      hint: analysisSetupHint(executable),
+    }
   }
 }
 
@@ -540,6 +569,32 @@ async function runBlender(config, exec, operation, payload, inputBlend) {
 
 function renderJson(value) {
   return [{ type: 'text', text: JSON.stringify(value, null, 2) }]
+}
+
+function summarizeIssue(issue) {
+  if (issue == null) return issue
+  if (typeof issue === 'string') return issue
+  if (typeof issue !== 'object') return String(issue)
+  const summary = {}
+  for (const key of ['object', 'code', 'message', 'severity', 'name']) {
+    if (issue[key] !== undefined && issue[key] !== '') summary[key] = issue[key]
+  }
+  return Object.keys(summary).length > 0 ? summary : issue
+}
+
+function summarizeValidation(result, extra = {}) {
+  const errors = Array.isArray(result?.errors) ? result.errors : []
+  const warnings = Array.isArray(result?.warnings) ? result.warnings : []
+  const objects = Array.isArray(result?.objects) ? result.objects : []
+  return {
+    ...extra,
+    passed: result?.passed === true,
+    errorCount: errors.length,
+    warningCount: warnings.length,
+    objectCount: objects.length,
+    topErrors: errors.slice(0, 5).map(summarizeIssue),
+    topWarnings: warnings.slice(0, 5).map(summarizeIssue),
+  }
 }
 
 function createTools(config) {
@@ -1034,6 +1089,7 @@ function createTools(config) {
           blendPath: { type: 'string', required: true },
           profile: { type: 'string', required: true },
           passed: { type: 'boolean', required: true },
+          summary: { type: 'object', additionalProperties: true, required: true },
           errors: { type: 'array', items: { type: 'object', additionalProperties: true }, required: true },
           warnings: { type: 'array', items: { type: 'object', additionalProperties: true }, required: true },
           objects: { type: 'array', items: { type: 'object', additionalProperties: true }, required: true },
@@ -1058,6 +1114,7 @@ function createTools(config) {
         blendPath,
         profile,
         passed: result.passed,
+        summary: summarizeValidation(result, { profile }),
         errors: result.errors,
         warnings: result.warnings,
         objects: result.objects,
@@ -1083,6 +1140,7 @@ function createTools(config) {
           modelPath: { type: 'string', required: true },
           format: { type: 'string', required: true },
           importedObjects: { type: 'array', items: { type: 'string' }, required: true },
+          summary: { type: 'object', additionalProperties: true, required: true },
           scene: { ...sceneSchema, required: true },
           validation: { type: 'object', additionalProperties: true, required: true },
           log: { ...logSchema, required: true },
@@ -1103,10 +1161,15 @@ function createTools(config) {
         profile,
         object_names: args.object_names ?? [],
       })
+      const validation = result.validation && typeof result.validation === 'object' ? result.validation : {}
       return {
         modelPath,
         format: format.slice(1),
         importedObjects: result.imported_objects,
+        summary: summarizeValidation(validation, {
+          format: format.slice(1),
+          importedObjectCount: Array.isArray(result.imported_objects) ? result.imported_objects.length : 0,
+        }),
         scene: result.scene,
         validation: result.validation,
         log: result.log,
@@ -1222,5 +1285,9 @@ export const internals = {
   sessionWorkspace,
   buildHelperInvocation,
   analysisPythonExecutable,
+  analysisSetupHint,
+  probeAnalysisRuntime,
+  summarizeIssue,
+  summarizeValidation,
   readSkillDefinition,
 }
